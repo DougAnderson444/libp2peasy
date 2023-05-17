@@ -1,0 +1,74 @@
+[package]
+name = "libp2peasy"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "libp2peasy"
+path = "./src/bin/libp2peasy/main.rs"
+
+[dependencies]
+anyhow = "1.0.69"
+bytes = "1"
+clap = { version = "4.1.11", features = ["derive"] }
+env_logger = "0.10"
+tokio = { version = "1.26.0", features = ["rt", "macros", "signal"] }
+tokio-stream = "0.1"
+either = "1.8"
+void = "1.0.2"
+async-trait = "0.1"
+futures = "0.3.27"
+futures-timer = "3.0.2"
+log = "0.4.17"
+rand = "0.8.5"
+prometheus-client = "0.19.0"
+tide = "0.16"
+base64 = "0.20"
+zeroize = "1"
+async-std = "1.12.0"
+serde = "1.0.160"
+serde_derive = "1.0.125"
+serde_json = "1.0"
+
+[dependencies.libp2p-identity]
+version = "0.1.2"
+# git = "https://github.com/libp2p/rust-libp2p.git"
+features = ["ed25519", "peerid"]
+
+[dependencies.libp2p]
+version = "0.51.3"
+features = [
+    "autonat",
+    "ping",
+    "rsa",
+    "async-std",
+    "dns",
+    "kad",
+    "gossipsub",
+    "identify",
+    "relay",
+    "mplex",
+    "macros",
+    "metrics",
+    "noise",
+    "tcp",
+    "tokio",
+    "websocket",
+    "yamux",
+    "ed25519",
+    "quic",
+]
+
+[dependencies.libp2p-quic]
+git = "https://github.com/p-shahi/rust-libp2p.git"
+branch = "master-plus-webrtc-code"
+features = ["tokio"]
+
+[dependencies.libp2p-webrtc]
+git = "https://github.com/p-shahi/rust-libp2p.git"
+branch = "master-plus-webrtc-code"
+version = "0.4.0-alpha.4"
+features = ["tokio", "pem"]
+
+[patch.crates-io]
+libp2p = { git = "https://github.com/p-shahi/rust-libp2p.git", branch = "master-plus-webrtc-code" }

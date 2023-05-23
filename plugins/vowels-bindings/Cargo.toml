@@ -1,0 +1,11 @@
+[package]
+name = "vowels-bindings"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+vowels-interface = { path = "../vowels-interface" }
+extism-pdk = { git = "https://github.com/extism/rust-pdk.git", version = "0.3.2" }

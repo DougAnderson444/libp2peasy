@@ -1,0 +1,13 @@
+[package]
+name = "libp2peasy-plugin-ipns-bindings"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+extism-pdk = { git = "https://github.com/extism/rust-pdk.git", version = "0.3.2" }
+ipns-interface = { path = "../ipns-interface" }

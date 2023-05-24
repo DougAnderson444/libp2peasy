@@ -1,5 +1,5 @@
 use extism_pdk::*;
-use ipns_interface::Output;
+use ipns_plugin_interface::Output;
 
 const VOWELS: &[char] = &['a', 'A', 'e', 'E', 'i', 'I', 'o', 'O', 'u', 'U'];
 

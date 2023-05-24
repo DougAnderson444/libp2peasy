@@ -1,5 +1,10 @@
 [workspace]
-members = [".", "plugins/*", "libp2peasy-plugin-dev-kit"]
+members = [
+    ".",
+    "plugin-bindings/*",
+    "plugin-interfaces/*",
+    "libp2peasy-plugin-dev-kit",
+]
 
 [package]
 name = "libp2peasy"

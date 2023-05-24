@@ -32,7 +32,7 @@ mod tests {
     use extism::Plugin;
     use extism::ValType;
     use extism::{CurrentPlugin, UserData, Val};
-    use vowels_interface::Output;
+    use ipns_plugin_interface::Output;
 
     /// Host function that is called by the plugin
     // https://github.com/extism/rust-pdk/blob/main/examples/host_function.rs
@@ -42,16 +42,14 @@ mod tests {
         outputs: &mut [Val],
         _user_data: UserData,
     ) -> Result<(), Error> {
-        println!("Hello from Rust Host Function!");
+        eprintln!("This is a host function!");
         outputs[0] = inputs[0].clone();
         Ok(())
     }
 
     #[test]
     fn it_works() -> Result<()> {
-        let wasm = include_bytes!(
-            "../../target/wasm32-unknown-unknown/release/libp2peasy_plugin_ipns_bindings.wasm"
-        );
+        let wasm = include_bytes!("../../target/wasm32-wasi/release/ipns_plugin_bindings.wasm");
 
         let context = Context::new();
         let f = Function::new(
@@ -65,7 +63,8 @@ mod tests {
         let mut config = std::collections::BTreeMap::new();
         config.insert("thing".to_string(), Some(thing.to_owned()));
 
-        let wasi = false;
+        // To use getrandom with wasm, we don't have `js` available, so we need to use `wasi` instead of wasm-unknown-unknown
+        let wasi = true;
         let mut plugin = Plugin::new(&context, wasm, [f], wasi)?.with_config(&config)?;
 
         let data = plugin.call("count_vowels", "this is a test").unwrap();

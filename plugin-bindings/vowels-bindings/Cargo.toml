@@ -7,5 +7,5 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-vowels-interface = { path = "../vowels-interface" }
+vowels-interface = { path = "../../plugin-interfaces/vowels-interface" }
 extism-pdk = { git = "https://github.com/extism/rust-pdk.git", version = "0.3.2" }

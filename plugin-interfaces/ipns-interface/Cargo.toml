@@ -1,5 +1,5 @@
 [package]
-name = "ipns-interface"
+name = "ipns-plugin-interface"
 version = "0.1.0"
 edition = "2021"
 

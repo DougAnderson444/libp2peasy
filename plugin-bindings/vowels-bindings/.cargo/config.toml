@@ -1,0 +1,3 @@
+[build]
+# target = "wasm32-unknown-unknown" # browser
+target = "wasm32-wasi" # native

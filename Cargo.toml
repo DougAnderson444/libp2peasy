@@ -50,8 +50,6 @@ branch = "master-plus-webrtc-code"
 features = [
     "autonat",
     "ping",
-    "rsa",
-    # "async-std",
     "dns",
     "kad",
     "gossipsub",

@@ -324,12 +324,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "asn1_der"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "155a5a185e42c6b77ac7b88a15143d930a9e9727a5b7b77eed417404ab15c247"
-
-[[package]]
 name = "async-channel"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2779,7 +2773,6 @@ name = "libp2p-identity"
 version = "0.1.2"
 source = "git+https://github.com/p-shahi/rust-libp2p.git?branch=master-plus-webrtc-code#331308802c87c2e2d5eda49d7dee1e4751029f9f"
 dependencies = [
- "asn1_der",
  "bs58",
  "ed25519-dalek",
  "log",
@@ -2787,7 +2780,6 @@ dependencies = [
  "multihash",
  "quick-protobuf",
  "rand 0.8.5",
- "ring",
  "sha2 0.10.6",
  "thiserror",
  "zeroize",

@@ -2,6 +2,7 @@ use crate::behaviour::{Behaviour, ComposedEvent};
 use crate::config::topic;
 use libp2p::core::ConnectedPoint;
 // use config::Config;
+use anyhow::{anyhow, Result};
 use libp2p::core::{muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{AddressRecord, AddressScore, Swarm, SwarmBuilder, SwarmEvent};
@@ -13,7 +14,6 @@ use tokio::sync::mpsc::{self, Receiver};
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
 
-mod config;
 mod types;
 
 const TICK_INTERVAL: Duration = Duration::from_secs(15);
@@ -57,6 +57,18 @@ impl Client {
             .expect("Command receiver not to be dropped.");
         receiver.await.expect("Sender not to be dropped.")
     }
+    pub async fn publish(&mut self, message: String, topic: String) {
+        self.sender
+            .send(Command::Publish { message, topic })
+            .await
+            .expect("Command receiver not to be dropped.");
+    }
+    pub async fn subscribe(&mut self, topic: String) {
+        self.sender
+            .send(Command::Subscribe { topic })
+            .await
+            .expect("Command receiver not to be dropped.");
+    }
 }
 
 #[derive(Debug)]
@@ -65,11 +77,23 @@ enum Command {
         addr: Multiaddr,
         sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
     },
+    Dial {
+        addr: Multiaddr,
+        sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
+    },
+    Publish {
+        message: String,
+        topic: String,
+    },
+    Subscribe {
+        topic: String,
+    },
 }
 
 #[derive(Debug)]
 pub enum NetworkEvent {
     NewListenAddr { address: Multiaddr },
+    Error { error: anyhow::Error },
 }
 
 pub struct EventLoop {
@@ -113,7 +137,7 @@ impl EventLoop {
     }
 
     async fn handle_tick(&mut self) {
-        eprintln!("🕒 Ticking at {:?}", self.now.elapsed());
+        eprintln!("🕒 Ticking at {:?}", self.now.elapsed().as_secs());
         self.tick.reset(TICK_INTERVAL);
 
         debug!(
@@ -138,11 +162,12 @@ impl EventLoop {
             self.now.elapsed().as_secs()
         );
 
-        if let Err(err) = self
+        if let Some(Err(err)) = self
             .swarm
             .behaviour_mut()
             .gossipsub
-            .publish(topic::topic(), message.as_bytes())
+            .as_mut()
+            .map(|g| g.publish(topic::topic(), message.as_bytes()))
         {
             error!("Failed to publish periodic message: {err}")
         }
@@ -157,6 +182,7 @@ impl EventLoop {
                         .with(Protocol::P2p((*self.swarm.local_peer_id()).into()));
 
                     info!("Listen p2p address: {p2p_addr:?}");
+                    // This address is reachable, add it
                     self.swarm
                         .add_external_address(p2p_addr.clone(), AddressScore::Infinite);
 
@@ -202,7 +228,9 @@ impl EventLoop {
                                 .as_mut()
                                 .map(|k| k.remove_address(&peer_id, addr));
 
-                            info!("Removed {addr:?} from the routing table (if it was in there).");
+                            self.swarm.remove_external_address(addr);
+
+                            debug!("Removed ADDR {addr:?} from the routing table (if it was in there).");
                         }
                     }
                     _ => {
@@ -211,7 +239,7 @@ impl EventLoop {
                 }
             }
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
-                warn!("Connection to {peer_id} closed: {cause:?}");
+                debug!("Connection to {peer_id} closed: {cause:?}");
             }
             SwarmEvent::Behaviour(ComposedEvent::Relay(e)) => {
                 debug!("{:?}", e);
@@ -228,15 +256,24 @@ impl EventLoop {
                     message.source,
                     String::from_utf8(message.data).unwrap()
                 );
+
+                /* Plugin */
+                // iterate through registered Plugins and call on_message
+                // for plugin in self.plugins.iter_mut() {
+                //     let response = plugin.call("on_message", &message).unwrap();
+                //     if let Some(response) = response {
+                //         self.event_sender.send(response)
+                //     }
+                // }
             }
             SwarmEvent::Behaviour(ComposedEvent::Gossipsub(
                 libp2p::gossipsub::Event::Subscribed { peer_id, topic },
             )) => {
                 debug!("{peer_id} subscribed to {topic}");
-                self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .add_explicit_peer(&peer_id);
+
+                if let Some(g) = self.swarm.behaviour_mut().gossipsub.as_mut() {
+                    g.add_explicit_peer(&peer_id)
+                };
 
                 // publish a message
                 // get the last 4 chars of the peer_id as slice:
@@ -246,104 +283,106 @@ impl EventLoop {
                     self.now.elapsed().as_secs()
                 );
 
-                if let Err(err) = self
+                if let Some(Err(err)) = self
                     .swarm
                     .behaviour_mut()
                     .gossipsub
-                    .publish(topic::topic(), message.as_bytes())
+                    .as_mut()
+                    .map(|g| g.publish(topic::topic(), message.as_bytes()))
                 {
                     error!("Failed to publish periodic message: {err}")
                 }
             }
-            SwarmEvent::Behaviour(ComposedEvent::Identify(e)) => {
-                debug!("ComposedEvent::Identify {:?}", e);
+            SwarmEvent::Behaviour(ComposedEvent::Identify(identify::Event::Error {
+                peer_id,
+                error: libp2p::swarm::ConnectionHandlerUpgrErr::Timeout,
+            })) => {
+                debug!("Connection to {peer_id} closed due to timeout");
 
-                if let identify::Event::Error { peer_id, error } = e {
-                    match error {
-                        libp2p::swarm::ConnectionHandlerUpgrErr::Timeout => {
-                            warn!("Connection to {peer_id} closed due to error: {error:?}");
+                // When a browser tab closes, we don't get a swarm event
+                // maybe there's a way to get this with TransportEvent
+                // but for now remove the peer from routing table if there's an Identify timeout
 
-                            // When a browser tab closes, we don't get a swarm event
-                            // maybe there's a way to get this with TransportEvent
-                            // but for now remove the peer from routing table if there's an Identify timeout
-                            self.swarm
-                                .behaviour_mut()
-                                .kademlia
-                                .as_mut()
-                                .map(|k| k.remove_peer(&peer_id));
+                // Add a counter, kick off after #x tries to connect
+                // if the peer is still in the routing table, remove it
 
-                            self.swarm
-                                .behaviour_mut()
-                                .gossipsub
-                                .remove_explicit_peer(&peer_id);
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .as_mut()
+                    .map(|k| k.remove_peer(&peer_id));
 
-                            info!("Removed {peer_id} from the routing table (if it was in there).");
-                        }
-                        _ => {
-                            debug!("{error}");
-                        }
-                    }
-                } else if let identify::Event::Received {
-                    peer_id,
-                    info:
-                        identify::Info {
-                            listen_addrs,
-                            protocols,
-                            observed_addr,
-                            ..
-                        },
-                } = e
-                {
-                    debug!("identify::Event::Received observed_addr: {}", observed_addr);
+                if let Some(g) = self.swarm.behaviour_mut().gossipsub.as_mut() {
+                    g.remove_explicit_peer(&peer_id)
+                };
 
+                self.swarm.disconnect_peer_id(peer_id).unwrap();
+
+                debug!("Removed PEER {peer_id} from the routing table (if it was in there).");
+            }
+            SwarmEvent::Behaviour(ComposedEvent::Identify(identify::Event::Received {
+                peer_id,
+                info:
+                    identify::Info {
+                        listen_addrs,
+                        protocols,
+                        observed_addr,
+                        ..
+                    },
+            })) => {
+                debug!("identify::Event::Received observed_addr: {}", observed_addr);
+
+                self.swarm
+                    .add_external_address(observed_addr, AddressScore::Infinite);
+
+                // TODO: This needs to be improved to only add the address tot he matching protocol name , assuming there is more than one per kad (which there shouldn't be, but there could be)
+                if protocols.iter().any(|p| {
                     self.swarm
-                        .add_external_address(observed_addr, AddressScore::Infinite);
+                        .behaviour()
+                        .kademlia
+                        .as_ref()
+                        .unwrap()
+                        .protocol_names()
+                        .iter()
+                        .any(|q| p.as_bytes() == q.as_ref())
+                }) {
+                    for addr in listen_addrs {
+                        debug!("identify::Event::Received listen addr: {}", addr);
 
-                    // TODO: This needs to be improved to only add the address tot he matching protocol name , assuming there is more than one per kad (which there shouldn't be, but there could be)
-                    if protocols.iter().any(|p| {
+                        let webrtc_address = addr
+                            .clone()
+                            .with(Protocol::WebRTCDirect)
+                            .with(Protocol::P2p(peer_id.into()));
+
                         self.swarm
-                            .behaviour()
+                            .behaviour_mut()
                             .kademlia
-                            .as_ref()
-                            .unwrap()
-                            .protocol_names()
-                            .iter()
-                            .any(|q| p.as_bytes() == q.as_ref())
-                    }) {
-                        for addr in listen_addrs {
-                            info!("identify::Event::Received listen addr: {}", addr);
+                            .as_mut()
+                            .map(|k| k.add_address(&peer_id, webrtc_address.clone()));
 
-                            let webrtc_address = addr
-                                .clone()
-                                .with(Protocol::WebRTCDirect)
-                                .with(Protocol::P2p(peer_id.into()));
+                        // TODO (fixme): the below doesn't work because the address is still missing /webrtc/p2p even after https://github.com/libp2p/js-libp2p-webrtc/pull/121
+                        self.swarm
+                            .behaviour_mut()
+                            .kademlia
+                            .as_mut()
+                            .map(|k| k.add_address(&peer_id, addr.clone()));
 
-                            self.swarm
-                                .behaviour_mut()
-                                .kademlia
-                                .as_mut()
-                                .map(|k| k.add_address(&peer_id, webrtc_address.clone()));
-
-                            // TODO (fixme): the below doesn't work because the address is still missing /webrtc/p2p even after https://github.com/libp2p/js-libp2p-webrtc/pull/121
-                            self.swarm
-                                .behaviour_mut()
-                                .kademlia
-                                .as_mut()
-                                .map(|k| k.add_address(&peer_id, addr.clone()));
-
-                            info!("Added {webrtc_address} to the routing table.");
-                        }
+                        debug!("Added {webrtc_address} to the routing table.");
                     }
                 }
             }
+            SwarmEvent::Behaviour(ComposedEvent::Kademlia(
+                libp2p::kad::KademliaEvent::OutboundQueryProgressed {
+                    result: libp2p::kad::QueryResult::Bootstrap(res),
+                    ..
+                },
+            )) => {
+                debug!("Kademlia Bootstrap Result: {:?}", res);
+            }
             SwarmEvent::Behaviour(ComposedEvent::Kademlia(event)) => {
-                debug!("Kademlia event: {:?}", event);
-                // metrics.record(&event);
+                debug!("Kademlia event: {:?}", event)
             }
-            event => {
-                debug!("Other type of event: {:?}", event);
-                // metrics.record(&event);
-            }
+            event => debug!("Other type of event: {:?}", event),
         }
     }
 
@@ -354,29 +393,47 @@ impl EventLoop {
                     Ok(_) => sender.send(Ok(())),
                     Err(e) => sender.send(Err(Box::new(e))),
                 };
-            } // if let Some(listen_address) = &self.listen_address {
-              //     // match on whether the listen address string is an IP address or not (do nothing if not)
-              //     match listen_address.parse::<IpAddr>() {
-              //         Ok(ip) => {
-              //             let opt_address_webrtc = Multiaddr::from(ip)
-              //                 .with(Protocol::Udp(PORT_WEBRTC))
-              //                 .with(Protocol::WebRTCDirect);
-              //             swarm.add_external_address(opt_address_webrtc, AddressScore::Infinite);
-              //         }
-              //         Err(_) => {
-              //             debug!(
-              //                 "listen_address provided is not an IP address: {}",
-              //                 listen_address
-              //             )
-              //         }
-              //     }
-              // }
-
-              // if let Some(remote_address) = &self.remote_address {
-              //     swarm
-              //         .dial(remote_address.clone())
-              //         .expect("a valid remote address to be provided");
-              // }
+            }
+            Command::Dial { addr, sender } => {
+                let _ = match self.swarm.dial(addr) {
+                    Ok(_) => sender.send(Ok(())),
+                    Err(e) => sender.send(Err(Box::new(e))),
+                };
+            }
+            Command::Publish { message, topic } => {
+                if let Some(Err(err)) = self
+                    .swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .as_mut()
+                    .map(|g| g.publish(topic::new(topic), message.as_bytes()))
+                {
+                    error!("Failed to publish message: {err}");
+                    let _ = self
+                        .event_sender
+                        .send(NetworkEvent::Error {
+                            error: anyhow!("Trouble sending message: {}", err),
+                        })
+                        .await;
+                }
+            }
+            Command::Subscribe { topic } => {
+                if let Some(Err(err)) = self
+                    .swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .as_mut()
+                    .map(|g| g.subscribe(&topic::new(topic)))
+                {
+                    error!("Failed to subscribe to topic: {err}");
+                    let _ = self
+                        .event_sender
+                        .send(NetworkEvent::Error {
+                            error: anyhow!("Trouble subscribing to topic: {}", err),
+                        })
+                        .await;
+                }
+            }
         }
     }
 }

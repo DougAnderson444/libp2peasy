@@ -1,16 +1,21 @@
 use anyhow::Result;
+use libp2peasy::Libp2peasy;
 use libp2peasy::Message;
-use libp2peasy::Server;
 use libp2peasy::ServerResponse;
+use libp2peasy::KADEMLIA_PROTOCOL_NAME;
 use tokio::sync::{mpsc, oneshot};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
     let (sendr, recvr) = mpsc::channel::<Message<ServerResponse>>(8);
 
     let _handle = tokio::spawn(async {
-        let _ = Server::new()
-            .enable_kademlia()
+        let _ = Libp2peasy::new()
+            .enable_kademlia(KADEMLIA_PROTOCOL_NAME) // could choose custom, or libp2p::kad::protocol::DEFAULT_PROTO_NAME (ipfs)
+            .enable_gossipsub()
+            // todo: .with_plugin(&plugin)
             .start_with_tokio_executor(recvr)
             .await;
     });

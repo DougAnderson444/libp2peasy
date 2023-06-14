@@ -26,7 +26,7 @@ const IPFS_BOOTNODES: [&str; 4] = [
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "ComposedEvent", prelude = "libp2p::swarm::derive_prelude")]
 pub struct Behaviour {
-    pub gossipsub: gossipsub::Behaviour,
+    pub gossipsub: Toggle<gossipsub::Behaviour>,
     identify: identify::Behaviour,
     pub kademlia: Toggle<Kademlia<MemoryStore>>,
     keep_alive: keep_alive::Behaviour,
@@ -46,6 +46,7 @@ pub struct BehaviourBuilder {
     id_keys: Keypair,
     autonat: Option<autonat::Behaviour>,
     kademlia: Option<Kademlia<MemoryStore>>,
+    gossipsub: Option<gossipsub::Behaviour>,
 }
 
 /// Builder pattern for Behaviour.
@@ -57,6 +58,7 @@ impl BehaviourBuilder {
             id_keys,
             autonat: None,
             kademlia: None,
+            gossipsub: None,
         }
     }
 
@@ -72,11 +74,11 @@ impl BehaviourBuilder {
 
     /// Optionally active and set the kademlia protocol name
     /// Protocol name example: `/universal-connectivity/lan/kad/1.0.0`
-    pub fn with_kademlia(&mut self, protocol_name: Option<&[u8]>) -> &Self {
+    pub fn with_kademlia(&mut self, protocol_name: Option<impl AsRef<[u8]>>) -> &Self {
         // Create a Kademlia behaviour.
         let mut cfg = KademliaConfig::default();
         if let Some(proto) = protocol_name {
-            cfg.set_protocol_names(vec![Cow::Owned(proto.to_vec())]);
+            cfg.set_protocol_names(vec![Cow::Owned(proto.as_ref().to_vec())]);
         }
         let store = MemoryStore::new(PeerId::from(self.id_keys.public()));
         let mut kademlia = Kademlia::with_config(PeerId::from(self.id_keys.public()), store, cfg);
@@ -99,11 +101,8 @@ impl BehaviourBuilder {
         self
     }
 
-    /// Builds the [Behaviour]
-    pub fn build(self) -> Behaviour {
-        let local_peer_id = PeerId::from(&self.id_keys.public());
-        debug!("Local peer id: {local_peer_id}");
-
+    /// Optionally enable Gossipsub
+    pub fn with_gossipsub(&mut self) -> &Self {
         // To content-address message, we can take the hash of message and use it as an ID.
         let message_id_fn = |message: &gossipsub::Message| {
             let mut s = DefaultHasher::new();
@@ -132,17 +131,29 @@ impl BehaviourBuilder {
         // subscribes to our topic
         gossipsub.subscribe(&topic()).expect("Valid topic string");
 
+        self.gossipsub = Some(gossipsub);
+        self
+    }
+
+    /// Builds the [Behaviour]
+    pub fn build(self) -> Behaviour {
+        let local_peer_id = PeerId::from(&self.id_keys.public());
+        debug!("Local peer id: {local_peer_id}");
+
+        // TODO: Tie in identify behaviour with plugin id/version?
+
         let identify = identify::Behaviour::new(
             identify::Config::new("/ipfs/0.1.0".into(), self.id_keys.public())
+                .with_initial_delay(Duration::from_secs(20)) // browsers clients need a longer delay
                 .with_interval(Duration::from_secs(60)) // do this so we can get timeouts for dropped WebRTC connections
                 .with_agent_version(format!("rust-libp2p-server/{}", env!("CARGO_PKG_VERSION"))),
         );
 
         Behaviour {
-            gossipsub,
             identify,
             autonat: self.autonat.into(),
             kademlia: self.kademlia.into(),
+            gossipsub: self.gossipsub.into(),
             keep_alive: keep_alive::Behaviour::default(),
             relay: relay::Behaviour::new(
                 local_peer_id,

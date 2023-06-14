@@ -1,9 +1,14 @@
-use crate::config::{KADEMLIA_PROTOCOL_NAME, LOCAL_KEY_PATH};
+// only if cfg target not wasm32-unknown-unknown
+#![cfg(not(target_arch = "wasm32"))]
+
+pub use crate::config::KADEMLIA_PROTOCOL_NAME;
+use crate::config::LOCAL_KEY_PATH;
 
 use anyhow::Result;
 use bytes::Bytes;
 use libp2p::multiaddr::{Multiaddr, Protocol};
 use log::warn;
+use std::borrow::Cow;
 use std::error::Error;
 use std::net::Ipv6Addr;
 use std::path::Path;
@@ -14,8 +19,6 @@ pub mod behaviour;
 pub mod config;
 pub mod network;
 pub mod transport;
-
-mod metric_server;
 
 const PORT_WEBRTC: u16 = 9090;
 const PORT_QUIC: u16 = 9091;
@@ -33,62 +36,82 @@ pub struct Message<T> {
 }
 
 #[derive(Debug, Default)]
-pub struct Server {
+pub struct Libp2peasy {
     /// Path to IPFS config file.
     config: Option<PathBuf>,
-
-    /// Metric endpoint path.
-    metrics_path: String,
 
     /// Whether to run the libp2p Kademlia protocol and join the IPFS DHT.
     enable_kademlia: bool,
 
+    /// Name of the Kademlia protocol.
+    kademlia_name: Option<Cow<'static, [u8]>>,
+
     /// Whether to run the libp2p Autonat protocol.
     enable_autonat: bool,
+
+    /// Whether to run the libp2p Gossipsub protocol.
+    enable_gossipsub: bool,
 
     /// Address to listen on
     listen_address: Option<String>,
 
     /// Address of a remote peer to connect to
     remote_address: Option<Multiaddr>,
+
+    /// Optional Plugins
+    plugins: Option<Vec<String>>,
 }
 
-impl Server {
+impl Libp2peasy {
     pub fn new() -> Self {
-        Server {
+        Libp2peasy {
             config: None,
-            metrics_path: "/metrics".to_string(),
             enable_kademlia: false,
+            kademlia_name: None,
             enable_autonat: false,
+            enable_gossipsub: false,
             listen_address: None,
             remote_address: None,
+            plugins: None,
         }
     }
 
-    fn with_config(&mut self, config: PathBuf) -> &mut Server {
+    fn with_config(&mut self, config: PathBuf) -> &mut Libp2peasy {
         self.config = Some(config);
         self
     }
 
-    pub fn enable_kademlia(&mut self) -> &mut Server {
+    pub fn enable_gossipsub(&mut self) -> &mut Libp2peasy {
+        self.enable_gossipsub = true;
+        self
+    }
+
+    pub fn enable_kademlia(&mut self, name: impl AsRef<[u8]> + 'static) -> &mut Libp2peasy {
+        self.kademlia_name = Some(std::borrow::Cow::Owned(name.as_ref().to_vec()));
         self.enable_kademlia = true;
         self
     }
 
-    pub fn enable_autonat(&mut self) -> &mut Server {
+    pub fn enable_autonat(&mut self) -> &mut Libp2peasy {
         self.enable_autonat = true;
         self
     }
 
     // with listen address
-    pub fn with_listen_address(&mut self, listen_address: String) -> &mut Server {
+    pub fn with_listen_address(&mut self, listen_address: String) -> &mut Libp2peasy {
         self.listen_address = Some(listen_address);
         self
     }
 
     // with remote address
-    pub fn with_remote_address(&mut self, remote_address: Multiaddr) -> &mut Server {
+    pub fn with_remote_address(&mut self, remote_address: Multiaddr) -> &mut Libp2peasy {
         self.remote_address = Some(remote_address);
+        self
+    }
+
+    /// TODO: Optional Plugins
+    pub fn with_plugin(&mut self) -> &mut Libp2peasy {
+        // TODO: new HashMap<String, Plugin> in self to track the plugins by name? or just a vec of plugins?
         self
     }
 
@@ -97,8 +120,6 @@ impl Server {
         &mut self,
         mut request_recvr: mpsc::Receiver<Message<ServerResponse>>,
     ) -> Result<(), Box<dyn Error>> {
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-
         if self.config.is_none() {
             // check if local key exists
             match config::Config::from_file(Path::new(LOCAL_KEY_PATH)) {
@@ -117,8 +138,12 @@ impl Server {
 
         let mut behaviour_builder = behaviour::BehaviourBuilder::new(local_keypair.clone());
 
-        if self.enable_kademlia {
-            behaviour_builder.with_kademlia(Some(KADEMLIA_PROTOCOL_NAME));
+        if let Some(name) = &self.kademlia_name {
+            behaviour_builder.with_kademlia(Some(name));
+        }
+
+        if self.enable_gossipsub {
+            behaviour_builder.with_gossipsub();
         };
 
         let behaviour = behaviour_builder.build();

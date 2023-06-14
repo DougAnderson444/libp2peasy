@@ -1,5 +1,6 @@
 use libp2p::identity;
 use libp2p::identity::PeerId;
+use libp2p::kad::protocol::DEFAULT_PROTO_NAME;
 use log::warn;
 use serde_derive::{Deserialize, Serialize};
 use std::error::Error;
@@ -8,13 +9,17 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use tokio::fs;
 
-pub const KADEMLIA_PROTOCOL_NAME: &[u8] = b"/universal-connectivity/lan/kad/1.0.0";
+pub const KADEMLIA_PROTOCOL_NAME: &[u8] = b"/universal-connectivity/lan/kad/1.0.0"; // kad::protocol::DEFAULT_PROTO_NAME
 pub const LOCAL_KEY_PATH: &str = "./local_keypair";
 
 pub mod topic {
     use libp2p::gossipsub::IdentTopic;
 
     const IPNS_DEMO: &str = "universal-connectivity";
+
+    pub fn new(topic: String) -> IdentTopic {
+        IdentTopic::new(topic)
+    }
 
     pub fn topic() -> IdentTopic {
         IdentTopic::new(IPNS_DEMO)
@@ -37,7 +42,7 @@ impl Config {
     ) -> Result<libp2p::identity::Keypair, Box<dyn Error>> {
         match config {
             Some(path) => {
-                println!("saved Local peer available");
+                println!("Previously saved local peerid available");
 
                 let config = zeroize::Zeroizing::new(Config::from_file(path.as_path())?);
 

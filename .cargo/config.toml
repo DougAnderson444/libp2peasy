@@ -1,4 +1,4 @@
 [env]
-
 # https://docs.rs/env_logger/0.10.0/env_logger/#enabling-logging
-# RUST_LOG = "info,libp2p_quic::endpoint=off" # libp2peasy=info,
+# RUST_LOG = "libp2p_quic::endpoint=off,webrtc=off,libp2p_webrtc=off,libp2p_gossipsub=off"
+RUST_LOG = "libp2p_gossipsub" # use this if you want to see all the gossipsub traffic in the log

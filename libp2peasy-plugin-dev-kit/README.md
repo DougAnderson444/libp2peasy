@@ -8,8 +8,10 @@ Each plugin has an emitter and a handler to send and receive messages respective
 
 Plugins parse the pubsub topic and handle the message according to the protocol.
 
--   [ ] IPNS
--   [ ] NNS
+Encodings & Services
+
+-   [ ] Naming: IPNS, NNS, other?
+-   [ ] Video Encoding (HLS through FFMpeg)
 -   [ ] Wallets
 -   [ ] Delanocreds
 -   [ ] Chat/Nostr

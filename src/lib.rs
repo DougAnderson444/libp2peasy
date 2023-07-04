@@ -1,14 +1,14 @@
 // only if cfg target not wasm32-unknown-unknown
 #![cfg(not(target_arch = "wasm32"))]
 
-pub use crate::config::KADEMLIA_PROTOCOL_NAME;
 use crate::config::LOCAL_KEY_PATH;
+pub use crate::config::{IPFS_PROTO_NAME, KADEMLIA_PROTOCOL_NAME};
 
 use anyhow::Result;
 use bytes::Bytes;
 use libp2p::multiaddr::{Multiaddr, Protocol};
+use libp2p::StreamProtocol;
 use log::warn;
-use std::borrow::Cow;
 use std::error::Error;
 use std::net::Ipv6Addr;
 use std::path::Path;
@@ -44,7 +44,7 @@ pub struct Libp2peasy {
     enable_kademlia: bool,
 
     /// Name of the Kademlia protocol.
-    kademlia_name: Option<Cow<'static, [u8]>>,
+    kademlia_name: Option<StreamProtocol>,
 
     /// Whether to run the libp2p Autonat protocol.
     enable_autonat: bool,
@@ -57,9 +57,6 @@ pub struct Libp2peasy {
 
     /// Address of a remote peer to connect to
     remote_address: Option<Multiaddr>,
-
-    /// Optional Plugins
-    plugins: Option<Vec<String>>,
 }
 
 impl Libp2peasy {
@@ -72,7 +69,6 @@ impl Libp2peasy {
             enable_gossipsub: false,
             listen_address: None,
             remote_address: None,
-            plugins: None,
         }
     }
 
@@ -86,8 +82,8 @@ impl Libp2peasy {
         self
     }
 
-    pub fn enable_kademlia(&mut self, name: impl AsRef<[u8]> + 'static) -> &mut Libp2peasy {
-        self.kademlia_name = Some(std::borrow::Cow::Owned(name.as_ref().to_vec()));
+    pub fn enable_kademlia(&mut self, name: StreamProtocol) -> &mut Libp2peasy {
+        self.kademlia_name = Some(name);
         self.enable_kademlia = true;
         self
     }

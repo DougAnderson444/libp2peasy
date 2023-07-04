@@ -2,7 +2,7 @@ use anyhow::Result;
 use libp2peasy::Libp2peasy;
 use libp2peasy::Message;
 use libp2peasy::ServerResponse;
-use libp2peasy::KADEMLIA_PROTOCOL_NAME;
+use libp2peasy::{IPFS_PROTO_NAME, KADEMLIA_PROTOCOL_NAME};
 use tokio::sync::{mpsc, oneshot};
 
 #[tokio::main]
@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
 
     let _handle = tokio::spawn(async {
         let _ = Libp2peasy::new()
-            .enable_kademlia(KADEMLIA_PROTOCOL_NAME) // could choose custom, or libp2p::kad::protocol::DEFAULT_PROTO_NAME (ipfs)
+            .enable_kademlia(IPFS_PROTO_NAME) // could choose custom, or libp2peasy::IPFS_PROTO_NAME (ipfs)
             .enable_gossipsub()
             // todo: .with_plugin(&plugin)
             .start_with_tokio_executor(recvr)

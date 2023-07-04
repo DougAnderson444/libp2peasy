@@ -1,9 +1,9 @@
 [workspace]
 members = [
     ".",
-    "plugin-bindings/*",
-    "plugin-interfaces/*",
-    "libp2peasy-plugin-dev-kit",
+    # "plugin-bindings/*",
+    # "plugin-interfaces/*",
+    # "libp2peasy-plugin-dev-kit",
 ]
 
 [package]
@@ -33,20 +33,12 @@ prometheus-client = "0.19.0"
 tide = "0.16"
 base64 = "0.20"
 zeroize = "1"
-# async-std = "1.12.0"
 serde = "1.0.160"
 serde_derive = "1.0.125"
 serde_json = "1.0"
 
-[dependencies.libp2p-identity]
-version = "0.1.2"
-# git = "https://github.com/libp2p/rust-libp2p.git"
-features = ["ed25519", "peerid"]
-
 [dependencies.libp2p]
-version = "0.51.3"
-git = "https://github.com/p-shahi/rust-libp2p.git"
-branch = "master-plus-webrtc-code"
+version = "0.52.0"
 features = [
     "autonat",
     "ping",
@@ -55,7 +47,6 @@ features = [
     "gossipsub",
     "identify",
     "relay",
-    "mplex",
     "macros",
     "metrics",
     "noise",
@@ -64,22 +55,20 @@ features = [
     "websocket",
     "yamux",
     "ed25519",
-    "quic",
+    "rsa",       # needed for noise upgrade for RSA nodes
 ]
 
+[dependencies.libp2p-identity]
+version = "0.2.1"
+features = ["ed25519", "peerid"]
+
 [dependencies.libp2p-quic]
-git = "https://github.com/p-shahi/rust-libp2p.git"
-branch = "master-plus-webrtc-code"
+version = "0.8.0-alpha"
 features = ["tokio"]
 
 [dependencies.libp2p-webrtc]
-git = "https://github.com/p-shahi/rust-libp2p.git"
-branch = "master-plus-webrtc-code"
-version = "0.4.0-alpha.4"
+version = "0.6.0-alpha"
 features = ["tokio", "pem"]
-
-[patch.crates-io]
-libp2p = { git = "https://github.com/p-shahi/rust-libp2p.git", branch = "master-plus-webrtc-code" }
 
 [profile.release]
 opt-level = "z"          # Optimize for size.

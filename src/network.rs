@@ -5,7 +5,7 @@ use libp2p::core::ConnectedPoint;
 use anyhow::{anyhow, Result};
 use libp2p::core::{muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::multiaddr::Protocol;
-use libp2p::swarm::{AddressRecord, AddressScore, Swarm, SwarmBuilder, SwarmEvent};
+use libp2p::swarm::{Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::{identify, Multiaddr, PeerId};
 use log::{debug, error, info, warn};
 use std::error::Error;
@@ -53,6 +53,15 @@ impl Client {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::StartListening { addr, sender })
+            .await
+            .expect("Command receiver not to be dropped.");
+        receiver.await.expect("Sender not to be dropped.")
+    }
+    // Dial
+    pub async fn dial(&mut self, addr: Multiaddr) -> Result<(), Box<dyn Error + Send>> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(Command::Dial { addr, sender })
             .await
             .expect("Command receiver not to be dropped.");
         receiver.await.expect("Sender not to be dropped.")
@@ -144,7 +153,8 @@ impl EventLoop {
             "external addrs: {:?}",
             self.swarm
                 .external_addresses()
-                .collect::<Vec<&AddressRecord>>()
+                .map(|a| a.to_string())
+                .collect::<Vec<_>>()
         );
 
         if let Some(Err(e)) = self
@@ -179,12 +189,11 @@ impl EventLoop {
                 let mut addr_handler = || {
                     let p2p_addr = address
                         .clone()
-                        .with(Protocol::P2p((*self.swarm.local_peer_id()).into()));
+                        .with(Protocol::P2p(*self.swarm.local_peer_id()));
 
-                    info!("Listen p2p address: {p2p_addr:?}");
+                    // info!("Listen p2p address: \n\x1b[30;1;42m{p2p_addr}\x1b[0m");
                     // This address is reachable, add it
-                    self.swarm
-                        .add_external_address(p2p_addr.clone(), AddressScore::Infinite);
+                    self.swarm.add_external_address(p2p_addr.clone());
 
                     // pass the address back to the other task, for display, etc.
                     self.event_sender
@@ -216,7 +225,7 @@ impl EventLoop {
                 info!("Connected to {peer_id}");
             }
 
-            SwarmEvent::OutgoingConnectionError { peer_id, error } => {
+            SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                 warn!("Failed to dial {peer_id:?}: {error}");
 
                 match (peer_id, &error) {
@@ -295,7 +304,7 @@ impl EventLoop {
             }
             SwarmEvent::Behaviour(ComposedEvent::Identify(identify::Event::Error {
                 peer_id,
-                error: libp2p::swarm::ConnectionHandlerUpgrErr::Timeout,
+                error: libp2p::swarm::StreamUpgradeError::Timeout,
             })) => {
                 debug!("Connection to {peer_id} closed due to timeout");
 
@@ -330,12 +339,12 @@ impl EventLoop {
                         ..
                     },
             })) => {
-                debug!("identify::Event::Received observed_addr: {}", observed_addr);
+                debug!(
+                    "identify::Event::Received peer {} observed_addr: {}",
+                    peer_id, observed_addr
+                );
 
-                self.swarm
-                    .add_external_address(observed_addr, AddressScore::Infinite);
-
-                // TODO: This needs to be improved to only add the address tot he matching protocol name , assuming there is more than one per kad (which there shouldn't be, but there could be)
+                // TODO: This needs to be improved to only add the address to the matching protocol name , assuming there is more than one per kad (which there shouldn't be, but there could be)
                 if protocols.iter().any(|p| {
                     self.swarm
                         .behaviour()
@@ -344,7 +353,7 @@ impl EventLoop {
                         .unwrap()
                         .protocol_names()
                         .iter()
-                        .any(|q| p.as_bytes() == q.as_ref())
+                        .any(|q| p == q)
                 }) {
                     for addr in listen_addrs {
                         debug!("identify::Event::Received listen addr: {}", addr);
@@ -352,7 +361,7 @@ impl EventLoop {
                         let webrtc_address = addr
                             .clone()
                             .with(Protocol::WebRTCDirect)
-                            .with(Protocol::P2p(peer_id.into()));
+                            .with(Protocol::P2p(peer_id));
 
                         self.swarm
                             .behaviour_mut()
@@ -377,7 +386,7 @@ impl EventLoop {
                     ..
                 },
             )) => {
-                debug!("Kademlia Bootstrap Result: {:?}", res);
+                debug!("Kademlia BOOTSTRAP Result: {:?}", res);
             }
             SwarmEvent::Behaviour(ComposedEvent::Kademlia(event)) => {
                 debug!("Kademlia event: {:?}", event)

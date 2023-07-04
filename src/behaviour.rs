@@ -1,15 +1,17 @@
-use super::config::topic::topic; // TODO: Make a behaviour config module instead of crate wide config
+use crate::config;
+
+use super::config::topic::topic;
+use libp2p::StreamProtocol;
+// TODO: Make a behaviour config module instead of crate wide config
 use libp2p::autonat;
 use libp2p::gossipsub;
 use libp2p::identify;
 use libp2p::identity::Keypair;
-use libp2p::kad;
 use libp2p::kad::{record::store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent};
 use libp2p::relay;
 use libp2p::swarm::{behaviour::toggle::Toggle, keep_alive, NetworkBehaviour};
 use libp2p::{Multiaddr, PeerId};
 use log::debug;
-use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
@@ -24,7 +26,7 @@ const IPFS_BOOTNODES: [&str; 4] = [
 ];
 
 #[derive(NetworkBehaviour)]
-#[behaviour(out_event = "ComposedEvent", prelude = "libp2p::swarm::derive_prelude")]
+#[behaviour(to_swarm = "ComposedEvent", prelude = "libp2p::swarm::derive_prelude")]
 pub struct Behaviour {
     pub gossipsub: Toggle<gossipsub::Behaviour>,
     identify: identify::Behaviour,
@@ -74,11 +76,11 @@ impl BehaviourBuilder {
 
     /// Optionally active and set the kademlia protocol name
     /// Protocol name example: `/universal-connectivity/lan/kad/1.0.0`
-    pub fn with_kademlia(&mut self, protocol_name: Option<impl AsRef<[u8]>>) -> &Self {
+    pub fn with_kademlia(&mut self, protocol_name: Option<&StreamProtocol>) -> &Self {
         // Create a Kademlia behaviour.
         let mut cfg = KademliaConfig::default();
         if let Some(proto) = protocol_name {
-            cfg.set_protocol_names(vec![Cow::Owned(proto.as_ref().to_vec())]);
+            cfg.set_protocol_names(vec![proto.clone()]);
         }
         let store = MemoryStore::new(PeerId::from(self.id_keys.public()));
         let mut kademlia = Kademlia::with_config(PeerId::from(self.id_keys.public()), store, cfg);
@@ -88,7 +90,7 @@ impl BehaviourBuilder {
         if kademlia
             .protocol_names()
             .iter()
-            .any(|p| *p == kad::protocol::DEFAULT_PROTO_NAME)
+            .any(|p| *p == config::IPFS_PROTO_NAME)
         {
             let bootaddr = Multiaddr::from_str("/dnsaddr/bootstrap.libp2p.io").unwrap();
             for peer in &IPFS_BOOTNODES {
@@ -112,12 +114,14 @@ impl BehaviourBuilder {
 
         // Set a custom gossipsub configuration
         let gossipsub_config = gossipsub::ConfigBuilder::default()
+            // .heartbeat_initial_delay(Duration::from_secs(5))
+            // .heartbeat_interval(Duration::from_secs(5)) // This is set to aid debugging by not cluttering the log space
             .validation_mode(gossipsub::ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message signing)
             .message_id_fn(message_id_fn) // content-address messages. No two messages of the same content will be propagated.
-            .mesh_outbound_min(1)
-            .mesh_n_low(1)
+            // .mesh_outbound_min(1)
+            // .mesh_n_low(1)
             .support_floodsub()
-            .flood_publish(true)
+            // .flood_publish(true)
             .build()
             .expect("Valid config");
 
@@ -144,7 +148,6 @@ impl BehaviourBuilder {
 
         let identify = identify::Behaviour::new(
             identify::Config::new("/ipfs/0.1.0".into(), self.id_keys.public())
-                .with_initial_delay(Duration::from_secs(20)) // browsers clients need a longer delay
                 .with_interval(Duration::from_secs(60)) // do this so we can get timeouts for dropped WebRTC connections
                 .with_agent_version(format!("rust-libp2p-server/{}", env!("CARGO_PKG_VERSION"))),
         );
@@ -154,7 +157,7 @@ impl BehaviourBuilder {
             autonat: self.autonat.into(),
             kademlia: self.kademlia.into(),
             gossipsub: self.gossipsub.into(),
-            keep_alive: keep_alive::Behaviour::default(),
+            keep_alive: keep_alive::Behaviour,
             relay: relay::Behaviour::new(
                 local_peer_id,
                 relay::Config {

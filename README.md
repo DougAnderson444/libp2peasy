@@ -1,7 +1,5 @@
 # Libp2peasy, Lemon Squeezy 🍋✊
 
-Note: [WIP]
-
 Ready made [Libp2p](https://libp2p.io/) [Rust Server](https://github.com/libp2p/rust-libp2p/) that connects to the IPFS DHT and gossipsib.
 
 Design goal is to have all modules separated for easy re-use in other libraries, and yto use a plugin system to extend the functionality of the server as you need it.
@@ -19,7 +17,7 @@ cargo run
 ```rs
 let _join_handle = tokio::spawn(async {
         let _res = Libp2peasy::new()
-            .enable_kademlia(/* todo: name */)
+            .enable_kademlia(StreamProtocol::new("my-network/1.0.0"))
             .enable_gossipsub()
             // todo: with_plugin(&plugin)
             .start_with_tokio_executor(recvr)

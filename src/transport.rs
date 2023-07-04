@@ -1,14 +1,13 @@
 use anyhow::{Context, Result};
 use futures::future::Either;
 use libp2p::core::upgrade;
-use libp2p::core::{muxing::StreamMuxerBox, transport::Boxed};
+use libp2p::core::{muxing::StreamMuxerBox, transport::Boxed, Transport};
 use libp2p::dns;
 use libp2p::identity;
 use libp2p::noise;
 use libp2p::tcp;
 use libp2p::yamux;
 use libp2p::PeerId;
-use libp2p::Transport;
 use libp2p_quic as quic;
 use libp2p_webrtc as webrtc;
 use libp2p_webrtc::tokio::Certificate;
@@ -22,15 +21,9 @@ const LOCAL_CERT_PATH: &str = "./cert.pem";
 
 /// Create a new Transport that supports WebRTC, QUIC, and TCP.
 pub async fn create(local_keypair: identity::Keypair) -> Result<Boxed<(PeerId, StreamMuxerBox)>> {
-    let authentication_config = {
-        let noise_keypair_spec = noise::Keypair::<noise::X25519Spec>::new()
-            .into_authentic(&local_keypair)
-            .context("Failed to create noise keypair")?;
+    let authentication_config = noise::Config::new(&local_keypair).unwrap();
 
-        noise::NoiseConfig::xx(noise_keypair_spec).into_authenticated()
-    };
-
-    let mut yamux_config = yamux::YamuxConfig::default();
+    let mut yamux_config = yamux::Config::default();
     // Enable proper flow-control: window updates are only sent when
     // buffered data has been consumed.
     yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());

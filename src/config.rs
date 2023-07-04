@@ -1,6 +1,6 @@
 use libp2p::identity;
 use libp2p::identity::PeerId;
-use libp2p::kad::protocol::DEFAULT_PROTO_NAME;
+use libp2p::StreamProtocol;
 use log::warn;
 use serde_derive::{Deserialize, Serialize};
 use std::error::Error;
@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use tokio::fs;
 
-pub const KADEMLIA_PROTOCOL_NAME: &[u8] = b"/universal-connectivity/lan/kad/1.0.0"; // kad::protocol::DEFAULT_PROTO_NAME
+pub const IPFS_PROTO_NAME: StreamProtocol = StreamProtocol::new("/ipfs/kad/1.0.0");
+pub const KADEMLIA_PROTOCOL_NAME: StreamProtocol =
+    StreamProtocol::new("/universal-connectivity/lan/kad/1.0.0"); // kad::protocol::DEFAULT_PROTO_NAME
 pub const LOCAL_KEY_PATH: &str = "./local_keypair";
 
 pub mod topic {

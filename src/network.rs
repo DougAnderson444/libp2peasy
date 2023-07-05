@@ -105,15 +105,25 @@ pub enum NetworkEvent {
     Error { error: anyhow::Error },
 }
 
+/// The network event loop.
+/// Handles all the network logic for us.
 pub struct EventLoop {
+    /// A future that fires at a regular interval and drives the behaviour of the network.
     tick: futures_timer::Delay,
+    /// The instant at which the last `tick` has fired.
     now: Instant,
+    /// The libp2p Swarm that handles all the network logic for us.
     swarm: Swarm<Behaviour>,
+    /// Channel to send commands to the network event loop.
     command_receiver: mpsc::Receiver<Command>,
+    /// Channel to send events from the network event loop to the user.
     event_sender: mpsc::Sender<NetworkEvent>,
+    /// A counter for peers that have been warned about being unIdentifiable.
+    warning_counters: std::collections::HashMap<PeerId, u8>,
 }
 
 impl EventLoop {
+    /// Creates a new network event loop.
     fn new(
         swarm: Swarm<Behaviour>,
         command_receiver: mpsc::Receiver<Command>,
@@ -125,9 +135,11 @@ impl EventLoop {
             swarm,
             command_receiver,
             event_sender,
+            warning_counters: std::collections::HashMap::new(),
         }
     }
 
+    /// Runs the network event loop.
     pub async fn run(mut self) {
         self.now = Instant::now();
 
@@ -145,6 +157,7 @@ impl EventLoop {
         }
     }
 
+    /// Handles a tick of the `tick` future.
     async fn handle_tick(&mut self) {
         eprintln!("🕒 Ticking at {:?}", self.now.elapsed().as_secs());
         self.tick.reset(TICK_INTERVAL);
@@ -183,6 +196,7 @@ impl EventLoop {
         }
     }
 
+    /// Handles a network event according to the matched Event type
     async fn handle_event(&mut self, event: SwarmEvent<ComposedEvent, types::ComposedErr>) {
         match event {
             SwarmEvent::NewListenAddr { address, .. } => {
@@ -312,22 +326,34 @@ impl EventLoop {
                 // maybe there's a way to get this with TransportEvent
                 // but for now remove the peer from routing table if there's an Identify timeout
 
-                // Add a counter, kick off after #x tries to connect
+                // Add a warning counter, kick off after 3 tries to Identify
                 // if the peer is still in the routing table, remove it
+                let warning_count = self.warning_counters.entry(peer_id).or_insert(0);
+                *warning_count += 1;
 
-                self.swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .as_mut()
-                    .map(|k| k.remove_peer(&peer_id));
+                debug!("⚠️  Identify count Warning for {peer_id}: {warning_count}");
 
-                if let Some(g) = self.swarm.behaviour_mut().gossipsub.as_mut() {
-                    g.remove_explicit_peer(&peer_id)
-                };
+                // Remove peer after 3 non responses to Identify
+                if *warning_count >= 3 {
+                    // remove the peer from the Kad routing table
+                    self.swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .as_mut()
+                        .map(|k| k.remove_peer(&peer_id));
 
-                self.swarm.disconnect_peer_id(peer_id).unwrap();
+                    // remove from Gossipsub
+                    if let Some(g) = self.swarm.behaviour_mut().gossipsub.as_mut() {
+                        g.remove_explicit_peer(&peer_id)
+                    };
 
-                debug!("Removed PEER {peer_id} from the routing table (if it was in there).");
+                    // remove from swarm
+                    self.swarm.disconnect_peer_id(peer_id).unwrap();
+
+                    // remove the peer from the warning_counters HashMap
+                    self.warning_counters.remove(&peer_id);
+                    debug!("Removed PEER {peer_id} from the routing table (if it was in there).");
+                }
             }
             SwarmEvent::Behaviour(ComposedEvent::Identify(identify::Event::Received {
                 peer_id,
@@ -344,7 +370,11 @@ impl EventLoop {
                     peer_id, observed_addr
                 );
 
-                // TODO: This needs to be improved to only add the address to the matching protocol name , assuming there is more than one per kad (which there shouldn't be, but there could be)
+                // remove warning_counters entry for this peer if it exists
+                self.warning_counters.remove(&peer_id);
+
+                // TODO: This needs to be improved to only add the address to the matching protocol name,
+                // assuming there is more than one per kad (which there shouldn't be, but there could be)
                 if protocols.iter().any(|p| {
                     self.swarm
                         .behaviour()

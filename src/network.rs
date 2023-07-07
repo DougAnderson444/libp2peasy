@@ -162,14 +162,6 @@ impl EventLoop {
         eprintln!("🕒 Ticking at {:?}", self.now.elapsed().as_secs());
         self.tick.reset(TICK_INTERVAL);
 
-        debug!(
-            "external addrs: {:?}",
-            self.swarm
-                .external_addresses()
-                .map(|a| a.to_string())
-                .collect::<Vec<_>>()
-        );
-
         if let Some(Err(e)) = self
             .swarm
             .behaviour_mut()
@@ -320,7 +312,7 @@ impl EventLoop {
                 peer_id,
                 error: libp2p::swarm::StreamUpgradeError::Timeout,
             })) => {
-                debug!("Connection to {peer_id} closed due to timeout");
+                debug!("Identify Error to {peer_id} closed due to timeout");
 
                 // When a browser tab closes, we don't get a swarm event
                 // maybe there's a way to get this with TransportEvent
@@ -434,6 +426,7 @@ impl EventLoop {
                 };
             }
             Command::Dial { addr, sender } => {
+                eprintln!("📞 Dialing {addr}");
                 let _ = match self.swarm.dial(addr) {
                     Ok(_) => sender.send(Ok(())),
                     Err(e) => sender.send(Err(Box::new(e))),

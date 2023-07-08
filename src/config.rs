@@ -10,7 +10,7 @@ use std::str::FromStr;
 use tokio::fs;
 
 pub const IPFS_PROTO_NAME: StreamProtocol = StreamProtocol::new("/ipfs/kad/1.0.0");
-pub const KADEMLIA_PROTOCOL_NAME: StreamProtocol =
+pub const KADEMLIA_UNIVERSAL_CONNECTIVITY: StreamProtocol =
     StreamProtocol::new("/universal-connectivity/lan/kad/1.0.0"); // kad::protocol::DEFAULT_PROTO_NAME
 pub const LOCAL_KEY_PATH: &str = "./local_keypair";
 
@@ -42,11 +42,23 @@ impl Config {
     pub async fn load_keypair(
         config: &Option<PathBuf>,
     ) -> Result<libp2p::identity::Keypair, Box<dyn Error>> {
-        match config {
-            Some(path) => {
+        // match tuple options:
+        // A) config is Some(path), and Config::from_file(path.as_path()) is Ok(config), use the config path to load keys
+        // B) config is Some(path), but Config::from_file(path.as_path()) is Err(e), use the config path to save news keys
+        // C) config is None, use the default path to save new keys
+        let (existing_keyfile, preferred_path) = match config {
+            Some(path) => match Config::from_file(path.as_path()) {
+                Ok(config) => (Some(config), path.to_owned()),
+                Err(_) => (None, path.to_owned()),
+            },
+            None => (None, Path::new(LOCAL_KEY_PATH).to_path_buf()),
+        };
+
+        match existing_keyfile {
+            Some(_) => {
                 println!("Previously saved local peerid available");
 
-                let config = zeroize::Zeroizing::new(Config::from_file(path.as_path())?);
+                let config = zeroize::Zeroizing::new(Config::from_file(preferred_path.as_path())?);
 
                 let keypair = identity::Keypair::from_protobuf_encoding(&zeroize::Zeroizing::new(
                     base64::decode(config.identity.priv_key.as_bytes())?,
@@ -77,7 +89,7 @@ impl Config {
 
                 match serde_json::to_string_pretty(&config) {
                     Ok(config) => {
-                        fs::write(LOCAL_KEY_PATH, config).await?;
+                        fs::write(preferred_path, config).await?;
                         Ok(keypair)
                     }
                     Err(e) => Err(e.into()),

@@ -1,23 +1,46 @@
 use anyhow::Result;
+use clap::Parser;
+use libp2p::Multiaddr;
 use libp2peasy::Libp2peasy;
 use libp2peasy::Message;
 use libp2peasy::ServerResponse;
-use libp2peasy::{IPFS_PROTO_NAME, KADEMLIA_PROTOCOL_NAME};
+#[allow(unused_imports)]
+use libp2peasy::{IPFS_PROTO_NAME, KADEMLIA_UNIVERSAL_CONNECTIVITY};
 use tokio::sync::{mpsc, oneshot};
+
+#[derive(Debug, Parser)]
+#[clap(name = "universal connectivity rust peer")]
+struct Opt {
+    /// Address of a remote peer to connect to.
+    #[clap(long)]
+    remote: Option<Multiaddr>,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    let opt = Opt::parse();
+
     let (sendr, recvr) = mpsc::channel::<Message<ServerResponse>>(8);
 
     let _handle = tokio::spawn(async {
-        let _ = Libp2peasy::new()
-            .enable_kademlia(IPFS_PROTO_NAME) // could choose custom, or libp2peasy::IPFS_PROTO_NAME (ipfs)
-            .enable_gossipsub()
-            // todo: .with_plugin(&plugin)
-            .start_with_tokio_executor(recvr)
-            .await;
+        let mut binding = Libp2peasy::new();
+        binding
+            .enable_kademlia(KADEMLIA_UNIVERSAL_CONNECTIVITY) // could choose custom, or libp2peasy::IPFS_PROTO_NAME (ipfs)
+            .enable_gossipsub();
+
+        // if opt.remote, then set up temp config directory for our second set of keys
+        if opt.remote.is_some() {
+            // Random temp dir for the config file (keys)
+            let rand_temp_dir =
+                std::env::temp_dir().join(format!("temp-{}", rand::random::<u32>()));
+            binding
+                .with_remote_address(opt.remote)
+                .with_config(rand_temp_dir);
+        }
+        // todo: .with_plugin(&plugin)
+        let _result = binding.start_with_tokio_executor(recvr).await;
     });
 
     tokio::spawn(async move {

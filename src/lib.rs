@@ -2,7 +2,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use crate::config::LOCAL_KEY_PATH;
-pub use crate::config::{IPFS_PROTO_NAME, KADEMLIA_PROTOCOL_NAME};
+pub use crate::config::{IPFS_PROTO_NAME, KADEMLIA_UNIVERSAL_CONNECTIVITY};
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -20,9 +20,9 @@ pub mod config;
 pub mod network;
 pub mod transport;
 
-const PORT_WEBRTC: u16 = 9090;
-const PORT_QUIC: u16 = 9091;
-const PORT_TCP: u16 = 9092;
+// const PORT_WEBRTC: u16 = 9090;
+// const PORT_QUIC: u16 = 9091;
+// const PORT_TCP: u16 = 9092;
 
 type Responder<T> = oneshot::Sender<T>;
 
@@ -72,7 +72,7 @@ impl Libp2peasy {
         }
     }
 
-    fn with_config(&mut self, config: PathBuf) -> &mut Libp2peasy {
+    pub fn with_config(&mut self, config: PathBuf) -> &mut Libp2peasy {
         self.config = Some(config);
         self
     }
@@ -99,9 +99,9 @@ impl Libp2peasy {
         self
     }
 
-    // with remote address
-    pub fn with_remote_address(&mut self, remote_address: Multiaddr) -> &mut Libp2peasy {
-        self.remote_address = Some(remote_address);
+    /// Add a remote address to dial
+    pub fn with_remote_address(&mut self, remote_address: Option<Multiaddr>) -> &mut Libp2peasy {
+        self.remote_address = remote_address;
         self
     }
 
@@ -116,6 +116,7 @@ impl Libp2peasy {
         &mut self,
         mut request_recvr: mpsc::Receiver<Message<ServerResponse>>,
     ) -> Result<(), Box<dyn Error>> {
+        // set the default config path if None is given
         if self.config.is_none() {
             // check if local key exists
             match config::Config::from_file(Path::new(LOCAL_KEY_PATH)) {
@@ -174,20 +175,35 @@ impl Libp2peasy {
         });
 
         let address_webrtc = Multiaddr::from(Ipv6Addr::UNSPECIFIED)
-            .with(Protocol::Udp(PORT_WEBRTC))
+            .with(Protocol::Udp(0)) // TCP or UDP, 0 means "assign me a port".
             .with(Protocol::WebRTCDirect);
 
         let address_quic = Multiaddr::from(Ipv6Addr::UNSPECIFIED)
-            .with(Protocol::Udp(PORT_QUIC))
+            .with(Protocol::Udp(0)) // TCP or UDP, 0 means "assign me a port".
             .with(Protocol::QuicV1);
 
-        let address_tcp = Multiaddr::from(Ipv6Addr::UNSPECIFIED).with(Protocol::Tcp(PORT_TCP));
+        let address_tcp = Multiaddr::from(Ipv6Addr::UNSPECIFIED).with(Protocol::Tcp(0)); // TCP or UDP, 0 means "assign me a port".
 
         for addr in [address_webrtc, address_quic, address_tcp] {
             network_client
                 .start_listening(addr)
                 .await
                 .expect("Listening not to fail.");
+        }
+
+        // also dial any given remote address
+        if let Some(remote_address) = &self.remote_address {
+            eprintln!("Dialing remote peer at {}", remote_address);
+            match network_client.dial(remote_address.clone()).await {
+                Ok(_) => {
+                    println!("☎️ 🎉 Dialed remote peer at {}", remote_address);
+                }
+                Err(err) => {
+                    eprintln!("Failed to dial remote peer at {}: {}", remote_address, err);
+                }
+            }
+        } else {
+            eprintln!("No remote address given to dial");
         }
 
         network_handle.await?;
